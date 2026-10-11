@@ -68,6 +68,15 @@ def main() -> int:
         default=3.0,
         help="Zeitlimit für die Modbus-Abfrage in Sekunden (Standard: 3)",
     )
+    parser.add_argument(
+        "--offset-watt",
+        type=float,
+        default=0.0,
+        help=(
+            "temporärer Offset in Watt für die Regelung "
+            "(positiv simuliert zusätzliche Einspeisung; Standard: 0)"
+        ),
+    )
     argumente = parser.parse_args()
 
     if argumente.heizleistung <= 0:
@@ -92,14 +101,22 @@ def main() -> int:
                 "Bei positiver Einspeisung wird die Heizung hochgeregelt, "
                 "bei Netzbezug heruntergeregelt."
             )
+            if argumente.offset_watt != 0:
+                offset_text = f"{argumente.offset_watt:+.1f}".replace(".", ",")
+                print(
+                    f"ACHTUNG: Für die Regelung wird ein Offset von "
+                    f"{offset_text} W verwendet. Ein positiver Offset kann "
+                    "die Heizung auch ohne entsprechende PV-Einspeisung einschalten."
+                )
 
             while True:
-                netzleistung = lese_netzleistung(
+                gemessene_netzleistung = lese_netzleistung(
                     argumente.ip,
                     argumente.port,
                     argumente.einheit_id,
                     argumente.timeout,
                 )
+                netzleistung = gemessene_netzleistung + argumente.offset_watt
 
                 prozent = berechne_neuen_prozentwert(
                     prozent, netzleistung, argumente.heizleistung
@@ -107,13 +124,14 @@ def main() -> int:
 
                 ganzzahl_prozent = round(prozent)
                 ansteuerung.setze_prozent(ganzzahl_prozent)
+                gemessen_text = f"{gemessene_netzleistung:+.1f}".replace(".", ",")
                 leistung_text = f"{netzleistung:+.1f}".replace(".", ",")
                 heizleistung_text = (
                     f"{argumente.heizleistung * ganzzahl_prozent / 100:.0f}"
                 )
                 sys.stdout.write(
-                    f"\r\033[2KNetzleistung (+ Einspeisung / - Netzbezug): "
-                    f"{leistung_text} W | "
+                    f"\r\033[2KNetzleistung: {gemessen_text} W | "
+                    f"Regelwert mit Offset: {leistung_text} W | "
                     f"Heizungsansteuerung: {ganzzahl_prozent} % "
                     f"({heizleistung_text} W von "
                     f"{argumente.heizleistung:.0f} W)"
